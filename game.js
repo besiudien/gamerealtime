@@ -304,6 +304,146 @@ function setupTabs() {
     });
 }
 
+// Save System
+function saveGame() {
+    const data = {
+        resources: gameState.resources,
+        buildings: gameState.buildings,
+        constructionQueue: gameState.constructionQueue,
+        lastSaveTime: Date.now(),
+        production: gameState.production // Save production for immediate display on load
+    };
+
+    // Create detailed save string
+    const jsonStr = JSON.stringify(data);
+    const saveStr = btoa(jsonStr); // Simple Base64 encoding
+
+    localStorage.setItem('galacticOutpost_save', saveStr);
+    console.log('Game Saved at ' + new Date().toLocaleTimeString());
+
+    // Optional: Visual feedback if needed
+    showToast(getTranslation('ui.gameSaved'));
+}
+
+function loadGame() {
+    const saved = localStorage.getItem('galacticOutpost_save');
+    if (!saved) return false;
+
+    try {
+        const jsonStr = atob(saved);
+        const data = JSON.parse(jsonStr);
+
+        // Merge data
+        if (data.resources) gameState.resources = { ...gameState.resources, ...data.resources };
+        if (data.buildings) gameState.buildings = { ...gameState.buildings, ...data.buildings };
+        if (data.constructionQueue) gameState.constructionQueue = data.constructionQueue;
+
+        // Calculate Offline Progress
+        if (data.lastSaveTime) {
+            const now = Date.now();
+            const elapsedSeconds = (now - data.lastSaveTime) / 1000;
+
+            if (elapsedSeconds > 10) { // Only if away > 10s
+                processOfflineProgress(elapsedSeconds, data.production);
+            }
+        }
+
+        return true;
+    } catch (e) {
+        console.error('Failed to load save:', e);
+        return false;
+    }
+}
+
+function processOfflineProgress(seconds, production) {
+    // Recalculate based on current building levels just to be safe, or use saved production
+    // Using saved production is safer for correct calculation at that snapshot
+    const prod = production || gameState.production;
+
+    const metalGained = Math.floor(prod.metal * (seconds / 3600));
+    const crystalGained = Math.floor(prod.crystal * (seconds / 3600));
+    // Energy doesn't accumulate but we might want to cap it? No, just rate.
+
+    gameState.resources.metal += metalGained;
+    gameState.resources.crystal += crystalGained;
+
+    // Advance queue
+    if (gameState.constructionQueue.length > 0) {
+        // Simple logic: reduce remaining time of first item
+        // A robust offline queue is complex, let's just reduce current item
+        let remainingSeconds = seconds;
+
+        // This is a simplified approach. A full simulation would be recursive.
+        // For now, let's just deduct time from the running queue items in order
+        // Note: In our main loop we only process first item usually? 
+        // Actually our updateConstructionQueue processes ALL items, but sequentially?
+        // Let's look at updateConstructionQueue: it decrements all? No, usually building queues are serial.
+        // Our updateConstructionQueue reduces timeRemaining for ALL items. So parallel construction?
+
+        // Let's assume parallel for this implementation based on previous code:
+        gameState.constructionQueue.forEach(item => {
+            item.timeRemaining = Math.max(0, item.timeRemaining - seconds);
+        });
+    }
+
+    // Show offline modal
+    setTimeout(() => {
+        alert(getTranslation('ui.welcomeBack') + `\n\n` +
+            getTranslation('resource.metal') + `: +${formatNumber(metalGained)}\n` +
+            getTranslation('resource.crystal') + `: +${formatNumber(crystalGained)}\n` +
+            `(${formatTime(seconds)} ${getTranslation('ui.offline')})`);
+    }, 500);
+}
+
+function exportSave() {
+    saveGame(); // Ensure latest state
+    const saved = localStorage.getItem('galacticOutpost_save');
+    return saved;
+}
+
+function importSave(saveStr) {
+    try {
+        const jsonStr = atob(saveStr);
+        const data = JSON.parse(jsonStr);
+        // Basic validation
+        if (!data.resources || !data.buildings) throw new Error('Invalid Save Data');
+
+        localStorage.setItem('galacticOutpost_save', saveStr);
+        location.reload(); // Reload to apply cleanly
+        return true;
+    } catch (e) {
+        alert(getTranslation('ui.importError'));
+        return false;
+    }
+}
+
+function resetGame() {
+    if (confirm(getTranslation('ui.resetConfirm'))) {
+        localStorage.removeItem('galacticOutpost_save');
+        location.reload();
+    }
+}
+
+function showToast(message) {
+    // Create toast element if not exists or reuse
+    let toast = document.getElementById('toast');
+    if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'toast';
+        toast.style.cssText = `
+            position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+            background: rgba(0, 245, 255, 0.2); border: 1px solid #00f5ff;
+            color: #fff; padding: 10px 20px; border-radius: 20px;
+            pointer-events: none; opacity: 0; transition: opacity 0.3s;
+            z-index: 1000; font-family: 'Rajdhani', sans-serif;
+        `;
+        document.body.appendChild(toast);
+    }
+    toast.textContent = message;
+    toast.style.opacity = '1';
+    setTimeout(() => { toast.style.opacity = '0'; }, 2000);
+}
+
 // Initialize game
 document.addEventListener('DOMContentLoaded', () => {
     // Generate stars
@@ -312,8 +452,16 @@ document.addEventListener('DOMContentLoaded', () => {
     // Setup tabs
     setupTabs();
 
-    // Recalculate production based on initial buildings
+    // Try calculate production early if possible
     recalculateProduction(gameState);
+
+    // LOAD GAME
+    const loaded = loadGame();
+    if (loaded) {
+        recalculateProduction(gameState); // Recalculate after loading buildings
+        updateConstructionQueueDisplay();
+        renderBuildings(); // Ensure buildings show correct levels
+    }
 
     // Initial display
     updateResourceDisplay();
@@ -331,8 +479,97 @@ document.addEventListener('DOMContentLoaded', () => {
             updateConstructionQueueDisplay();
             renderBuildings(); // Re-render if something completed
             updateResourceDisplay();
+            saveGame(); // Save on meaningful event
         } else if (gameState.constructionQueue.length > 0) {
             updateConstructionQueueDisplay(); // Just update timers
         }
     }, 1000);
+
+    // Auto Save every 30 seconds
+    setInterval(() => {
+        saveGame();
+    }, 30000);
+
+    // Setup UI Listeners
+    setupUI();
 });
+
+// UI Event Listeners
+function setupUI() {
+    const modal = document.getElementById('settings-modal');
+    const openBtn = document.getElementById('open-settings-btn');
+    const closeBtn = document.getElementById('close-settings-btn');
+
+    // Open/Close Modal
+    if (openBtn) openBtn.addEventListener('click', () => {
+        modal.classList.add('active');
+        document.getElementById('io-container').style.display = 'none'; // Reset IO view
+    });
+
+    if (closeBtn) closeBtn.addEventListener('click', () => {
+        modal.classList.remove('active');
+    });
+
+    // Close on click outside
+    window.addEventListener('click', (e) => {
+        if (e.target === modal) {
+            modal.classList.remove('active');
+        }
+    });
+
+    // Save/Reset
+    document.getElementById('btn-save')?.addEventListener('click', saveGame);
+    document.getElementById('btn-reset')?.addEventListener('click', resetGame);
+
+    // Export
+    document.getElementById('btn-export')?.addEventListener('click', () => {
+        const ioContainer = document.getElementById('io-container');
+        const textarea = document.getElementById('io-textarea');
+        const copyBtn = document.getElementById('btn-copy');
+        const loadBtn = document.getElementById('btn-load-import');
+
+        ioContainer.style.display = 'flex';
+        textarea.value = exportSave();
+        textarea.readOnly = true;
+
+        copyBtn.style.display = 'block';
+        loadBtn.style.display = 'none';
+
+        // Auto select
+        textarea.select();
+    });
+
+    // Import
+    document.getElementById('btn-import')?.addEventListener('click', () => {
+        const ioContainer = document.getElementById('io-container');
+        const textarea = document.getElementById('io-textarea');
+        const copyBtn = document.getElementById('btn-copy');
+        const loadBtn = document.getElementById('btn-load-import');
+
+        ioContainer.style.display = 'flex';
+        textarea.value = '';
+        textarea.placeholder = 'Paste save string here...';
+        textarea.readOnly = false;
+
+        copyBtn.style.display = 'none';
+        loadBtn.style.display = 'block';
+
+        textarea.focus();
+    });
+
+    // Copy Action
+    document.getElementById('btn-copy')?.addEventListener('click', () => {
+        const textarea = document.getElementById('io-textarea');
+        textarea.select();
+        document.execCommand('copy');
+        showToast(getTranslation('ui.copied'));
+    });
+
+    // Load Action
+    document.getElementById('btn-load-import')?.addEventListener('click', () => {
+        const textarea = document.getElementById('io-textarea');
+        if (textarea.value.trim()) {
+            importSave(textarea.value.trim());
+        }
+    });
+}

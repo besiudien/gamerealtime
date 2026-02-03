@@ -91,6 +91,24 @@ const translations = {
             storage: "Kho chứa sắp đầy"
         },
 
+        // UI
+        ui: {
+            settings: "Cài đặt",
+            saveGame: "Lưu game",
+            gameSaved: "Đã lưu game!",
+            resetGame: "Chơi lại từ đầu",
+            resetConfirm: "Bạn có chắc không? Dữ liệu sẽ bị xóa sạch.",
+            exportSave: "Xuất dữ liệu",
+            importSave: "Nhập dữ liệu",
+            importError: "Mã lỗi hoặc hỏng!",
+            close: "Đóng",
+            copy: "Sao chép",
+            copied: "Đã sao chép!",
+            load: "Tải dữ liệu",
+            offline: "ngoại tuyến",
+            welcomeBack: "Chào mừng trở lại Chỉ huy!"
+        },
+
         // Common
         comingSoon: "Đang phát triển..."
     },
@@ -120,7 +138,7 @@ const translations = {
             level: "Base Level",
             buildings: "Buildings",
             ships: "Ships",
-            research: "Research"
+            research: "Technology"
         },
 
         // Construction Queue
@@ -186,6 +204,24 @@ const translations = {
             storage: "Storage almost full"
         },
 
+        // UI
+        ui: {
+            settings: "Settings",
+            saveGame: "Save Game",
+            gameSaved: "Game Saved!",
+            resetGame: "Reset Game",
+            resetConfirm: "Are you sure? This will wipe your progress.",
+            exportSave: "Export Data",
+            importSave: "Import Data",
+            importError: "Invalid Save String!",
+            close: "Close",
+            copy: "Copy",
+            copied: "Copied!",
+            load: "Load",
+            offline: "offline",
+            welcomeBack: "Welcome Back Commander!"
+        },
+
         // Common
         comingSoon: "Coming Soon..."
     }
@@ -200,11 +236,11 @@ function getTranslation(key) {
     let value = translations[currentLang];
 
     for (const k of keys) {
+        if (!value) return key; // Safety check
         value = value[k];
-        if (!value) return key;
     }
 
-    return value;
+    return value || key;
 }
 
 // Apply translations to page
